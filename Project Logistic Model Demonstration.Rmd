@@ -1,0 +1,148 @@
+---
+title: "Project Logistic Model Demonstration"
+author: "Jiaying"
+date: "Mar 19, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
+library(dplyr) 
+library(readr)
+library(ggplot2)
+library(broom)
+library(NHANES)
+library(ggmosaic)
+source('ggavplot.R')
+```
+
+```{r}
+library(NHANES)
+data(NHANES)
+head(NHANES)
+
+Adult <- NHANES %>% 
+  filter(Age >= 18) %>%
+  filter(AgeFirstMarij <= 30 & AgeFirstMarij >= 10) %>%
+  filter(SmokeAge <= 30) %>%
+  filter(!is.na(SmokeAge)) %>%
+  filter(!is.na(SmokeNow)) %>%
+  filter(!is.na(AgeFirstMarij)) %>%
+  filter(!is.na(RegularMarij)) %>%
+  filter(!is.na(HHIncome)) %>%
+  filter(!is.na(Race1)) %>%
+  filter(!is.na(Gender))
+
+# create a binary indicator outcome
+IndicatorAdult <- 
+  Adult %>%
+  mutate(AgeFirstMarijAdult = AgeFirstMarij >= 18)  
+```
+
+```{r fit-larger-logistic-model}
+glm.mod.full <- 
+  IndicatorAdult %>%
+  with(glm(AgeFirstMarijAdult ~ RegularMarij + SmokeAge + SmokeNow + Gender + Race1 + HHIncome, family = binomial))
+tidy(glm.mod.full)
+```
+
+```{r compare-nested-logistic-models}
+glm.mod.sub <- 
+  IndicatorAdult %>%
+  with(glm(AgeFirstMarijAdult ~ RegularMarij + SmokeAge + SmokeNow + Gender, family = binomial)) 
+
+anova(glm.mod.full, glm.mod.sub, test='LRT')
+```
+
+```{r compare-logistic-models, message=FALSE}
+# check first model
+glm.mod.1 <- 
+  IndicatorAdult %>%
+  with(glm(AgeFirstMarijAdult ~ RegularMarij + SmokeNow + SmokeAge + Gender , family = binomial)) 
+confint(glm.mod.1) %>% exp() %>% round(2)
+tidy(glm.mod.1)
+
+# check second model
+glm.mod.2 <- 
+  IndicatorAdult %>%
+  with(glm(AgeFirstMarijAdult ~ RegularMarij + SmokeNow + Gender, family = binomial)) 
+confint(glm.mod.2) %>% exp() %>% round(2)
+tidy(glm.mod.2)
+
+glm.mod.2 %>%
+  augment(type.predict ='response') %>%
+  ggplot(aes(x = factor(AgeFirstMarijAdult), y = .fitted)) +
+  geom_boxplot() 
+
+glm.mod.2 %>%
+  augment(type.predict ='response') %>%
+  mutate(PredictAgeFirstMarijAdult = .fitted >= 0.25) %>%
+  count(AgeFirstMarijAdult, PredictAgeFirstMarijAdult) %>% 
+  group_by(AgeFirstMarijAdult) %>%
+  mutate(prop = n/sum(n)) 
+
+# check third model
+glm.mod.3 <- 
+  IndicatorAdult %>%
+  with(glm(AgeFirstMarijAdult ~ RegularMarij + SmokeAge + Gender, family = binomial)) 
+confint(glm.mod.3) %>% exp() %>% round(2)
+tidy(glm.mod.3)
+
+glm.mod.3 %>%
+  augment(type.predict ='response') %>%
+  ggplot(aes(x = factor(AgeFirstMarijAdult), y = .fitted)) +
+  geom_boxplot() 
+
+glm.mod.3 %>%
+  augment(type.predict ='response') %>%
+  mutate(PredictAgeFirstMarijAdult = .fitted >= 0.25) %>%
+  count(AgeFirstMarijAdult, PredictAgeFirstMarijAdult) %>% 
+  group_by(AgeFirstMarijAdult) %>%
+  mutate(prop = n/sum(n)) 
+
+```
+
+```{r final-logistic-model, message=FALSE}
+# fit final logistic model
+final.glm.mod <- 
+  IndicatorAdult %>%
+  with(glm(AgeFirstMarijAdult ~ RegularMarij + SmokeAge + Gender, family = binomial))
+
+coef(final.glm.mod) %>% exp() # exp estimates
+confint(final.glm.mod) %>% exp() # confidence intervals
+tidy(final.glm.mod) # p-values
+
+IndicatorAdult %>%
+  mutate(smokeAgeCut = cut(SmokeAge, 4)) %>%
+  ggplot(aes(x = RegularMarij, y = AgeFirstMarijAdult)) +
+  geom_mosaic(aes(x = product(AgeFirstMarijAdult, RegularMarij),fill = AgeFirstMarijAdult)) +
+  facet_wrap(~ smokeAgeCut, ncol = 4) +
+  theme_minimal() +
+  xlab("Current Regularly Smoking Marijuana") +
+  ylab('First Time Smoking Marijuana as Adult or Minors') +
+  labs(title = "Marijuana Smoking Behavior and Other Smoking Status") +
+  labs(fill = 'Start Smoking as Adult')+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(family = "Times New Roman", face = "bold", size = 10))
+
+augment(final.glm.mod, type.predict = 'response') %>%
+  ggplot(aes(x = factor(AgeFirstMarijAdult), y = .fitted)) + 
+  geom_hline(yintercept = 0.28, color = 'red') +
+  geom_boxplot() +
+  labs(x = 'Outcome', y = 'Predicted Probability of Outcome') + 
+  theme_minimal() +
+  ylab("Predicted probability of Age Starting Smoking Marijuana as Adult") +
+  xlab("Actual probability of Age Starting Smoking Marijuana as Adult (False = Below 18, Ture = Over 18)") +
+  labs(title = "Predicted Probabilities v. True Outcome Value") +
+  theme(plot.title = element_text(hjust = 0.4)) +
+  theme(text = element_text(family = "Times New Roman", face = "bold", size = 10))
+
+# evaluate goodness
+threshold <- 0.28
+
+augment(final.glm.mod, type.predict = 'response') %>%  
+  mutate(PredictOutcome = .fitted > threshold) %>%
+  count(AgeFirstMarijAdult, PredictOutcome) %>% 
+  group_by(AgeFirstMarijAdult) %>% 
+  mutate(prop = n/sum(n))
+```

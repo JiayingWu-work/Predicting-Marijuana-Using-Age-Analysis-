@@ -1,0 +1,178 @@
+---
+title: "Project Linear Model Demonstration"
+author: "Jiaying"
+date: "Mar 19, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
+library(dplyr) 
+library(readr)
+library(ggplot2)
+library(broom)
+library(NHANES)
+library(ggmosaic)
+source('ggavplot.R')
+```
+
+```{r}
+library(NHANES)
+data(NHANES)
+head(NHANES)
+
+Adult.lm <- NHANES %>% 
+  filter(Age >= 18) %>%
+  filter(AgeFirstMarij <= 30 & AgeFirstMarij >= 10) %>%
+  filter(SmokeAge <= 30) %>%
+  filter(!is.na(AgeDecade)) %>%
+  filter(!is.na(SmokeAge)) %>%
+  filter(!is.na(AgeFirstMarij)) %>%
+  filter(!is.na(Education)) %>%
+  filter(!is.na(HHIncome)) %>%
+  filter(!is.na(Race1)) %>%
+  filter(!is.na(Gender))
+```
+
+```{r compare-nested-linear-models}
+lm.mod.full <- 
+  Adult.lm %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + Education + Gender + Race1 + HHIncome + AgeDecade))
+tidy(lm.mod.full)
+
+lm.mod.sub <- 
+  Adult.lm %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + Education + AgeDecade))
+anova(lm.mod.full, lm.mod.sub)
+```
+
+```{r compare-linear-models, message=FALSE}
+lm.mod.1 <- 
+  Adult.lm %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + Education))
+tidy(lm.mod.1)
+glance(lm.mod.1)
+
+augment(lm.mod.1) %>%
+  ggplot(aes(y = .resid, x = .fitted)) + 
+  geom_point() + 
+  geom_smooth(se = FALSE, color = 'steelblue') + 
+  geom_hline(yintercept = 0)
+
+# check second model
+lm.mod.2 <- 
+  Adult.lm %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + AgeDecade))
+tidy(lm.mod.2)
+glance(lm.mod.2)
+
+augment(lm.mod.2) %>%
+  ggplot(aes(y = .resid, x = .fitted)) + 
+  geom_point() + 
+  geom_smooth(se = FALSE, color = 'steelblue') + 
+  geom_hline(yintercept = 0)
+
+# check third model
+lm.mod.3 <- 
+  Adult.lm %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + AgeDecade + Education))
+tidy(lm.mod.3)
+glance(lm.mod.3)
+lm.mod.3 %>%
+  ggAVPLOTS
+
+augment(lm.mod.3) %>%
+  ggplot(aes(y = .resid, x = .fitted)) + 
+  geom_point() + 
+  geom_smooth(se = FALSE, color = 'steelblue') + 
+  geom_hline(yintercept = 0)
+
+# check fourth model with merged Education
+lm.mod.4 <- 
+  Adult.lm %>%
+  mutate(EducationCut = case_when(
+    Education %in% c("8th Grade") ~ "8thGrade",
+    Education %in% c("9 - 11th Grade", "High School") ~ "HighSchool", 
+    Education %in% c("Some College", "College Grad") ~ "College" )) %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + EducationCut + AgeDecade))
+
+tidy(lm.mod.4)
+confint(lm.mod.4)
+glance(lm.mod.4)
+lm.mod.4 %>%
+  ggAVPLOTS
+```
+
+```{r final-linear-model, message=FALSE}
+final.lm.mod <- 
+  Adult.lm %>%
+  mutate(EducationCut = case_when(
+    Education %in% c("8th Grade") ~ "8thGrade",
+    Education %in% c("9 - 11th Grade", "High School") ~ "HighSchool", 
+    Education %in% c("Some College", "College Grad") ~ "College" )) %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + EducationCut + AgeDecade))
+
+confint(final.lm.mod) 
+glance(final.lm.mod) 
+
+Adult.lm %>%
+  mutate(EducationCut = case_when(
+    Education %in% c("8th Grade") ~ "8th Grade",
+    Education %in% c("9 - 11th Grade", "High School") ~ "HighSchool", 
+    Education %in% c("Some College", "College Grad") ~ "College" )) %>%
+  filter(!is.na(EducationCut)) %>%
+  ggplot(aes(x = SmokeAge, y = AgeFirstMarij, color = EducationCut)) +
+  geom_jitter(alpha = 0.4) +
+  geom_smooth(method = 'lm', se = FALSE, formula = y ~ x) + 
+  scale_color_viridis_d() +
+  xlab("Starting age of Smoking Cigarette") +
+  ylab("Starting age of Smoking Marijuana") +
+  labs(title = "Marjuana Smoking Behavior with Smoking and Educational Background") +
+  labs(color = "Education category") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.1)) +
+  theme(text = element_text(family="Times New Roman", face="bold", size=10))
+
+# residuals vs fitted 
+augment(final.lm.mod) %>%
+  ggplot(aes(x = .fitted, y = .resid)) + 
+  geom_point() +
+  geom_hline(yintercept = 0)+
+  geom_smooth(se=FALSE) +
+  geom_hline(yintercept = 0) +  
+  xlab('Predicted Starting Smoking Marijuana Age') +
+  ylab('Residuals') +
+  labs(title = 'Residual Model') +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(family="Times New Roman", face="bold", size=12))
+
+# residuals vs quantitative X1 
+augment(final.lm.mod) %>%
+  ggplot(aes(x = SmokeAge, y = .resid)) + 
+  geom_point() +
+  geom_hline(yintercept = 0)+
+  geom_smooth(se=FALSE) +
+  geom_hline(yintercept = 0) +  
+  xlab('Predicted Cigarette Smoking Age') +
+  ylab('Residuals') +
+  labs(title = 'Residual Model') +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(family="Times New Roman", face="bold", size=12))
+
+# residuals vs categorical X2 
+augment(final.lm.mod) %>%
+  ggplot(aes(x = EducationCut , y = .resid)) + 
+  geom_boxplot() +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = 0) +  
+  xlab('Predicted Education backgrounds') +
+  ylab('Residuals') +
+  labs(title = 'Residual Model') +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(family="Times New Roman", face="bold", size=12))
+
+final.lm.mod %>% ggAVPLOTS() 
+```
