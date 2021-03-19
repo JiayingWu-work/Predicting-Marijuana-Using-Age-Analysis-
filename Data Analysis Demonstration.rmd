@@ -1,0 +1,155 @@
+---
+title: "Data Analysis Demonstration"
+author: "Jiaying Wu"
+date: "Mar 19, 2021"
+output: 
+  html_document: 
+    theme: lumen 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
+library(dplyr) 
+library(readr)
+library(ggplot2)
+library(broom)
+library(NHANES)
+library(ggmosaic)
+```
+
+## Load Data
+
+```{r load-data}
+# load data
+data(NHANES)
+head(NHANES)
+
+# create variables, do filtering, etc. 
+adult_linear <- NHANES %>% 
+  filter(Age >= 18) %>%
+  filter(AgeFirstMarij <= 30) %>%
+  filter(SmokeAge >= 18) %>% 
+  filter(!is.na(SmokeAge)) %>%
+  filter(!is.na(AgeFirstMarij)) %>%
+  filter(!is.na(Education))
+
+# create regular linear regression
+mod1 <-
+  adult_linear %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + Education))
+
+tidy(mod1)
+```
+
+## Bootstrapping for Linear Regression Model
+
+```{r bootstrap-linear-model, message=FALSE}
+# set to be the same each time
+set.seed(1) 
+
+# 500 bootstrap samples
+boot_data_linear <- mosaic::do(500)*(
+  adult_linear %>% 
+  sample_frac(replace = TRUE) %>%
+  with(lm(AgeFirstMarij ~ SmokeAge + Education))    
+)
+
+# look at bootstrap estimates (and variable names)
+head(boot_data_linear)
+
+# visualize the bootstrap sampling distribution for one slope coefficient of interest
+boot_data_linear %>%
+  ggplot(aes(x = SmokeAge)) + 
+  geom_histogram() +
+  labs(x = "Smoke Age Slope Estimates", title = "Bootstrap Sampling Distribution for Smoke Age Slope") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(family = "Times New Roman", face = "bold", size = 10)) +
+  geom_vline(xintercept = coef(mod1)[2], lwd = 2, color = "steelblue")
+```
+
+> Description of the bootstrap sampling distribution (center, spread, shape): The bootstrap Sampling Distribution describes 500 random samples in the bootstrap sampling of the smoke age coefficient. The normal is roughly symmetrical and unimodal, centered at 0.08 years of age, which is shorter than one month. This centered 0.08 year is the average estimated difference in the marijuana start smoking age if someone starts to smoke cigarettes one year later, taking into account their educational levels are the same. 
+
+> Description of what information the bootstrap sampling distribution provides: Based on where the original sample estimates (blue vertical lines) is, it seems that our bootstrapping sample's distribution is very near to the original smoke age slope coefficient. This tells us that if we use the 68-95-99.7 rule (2 SE’s) for our classical approach, we’ll come to roughly the same conclusion as if we did bootstrap CI’s. That being said, bootstrapping provides us a reliable approach to get that there is on average an estimated 0.08 year difference in the marijuana start smoking age compared to someone starts to smoke cigarettes one year later, taking into account their educational levels are the same. The coefficient estimates are slightly spread out, suggesting that there is variability in our estimates. However, considering the unit of smoking age, the whole 95% CI is only roughly one month. We should not concern too much about the variation shown in the visualization. Lastly, it is important to notice that there is a rare chance that smoke age slope estimates could go below 0, which means that it is possible that start smoking cigarettes age does not affect the age of smoking marijuana, even after accounting for educational backgrounds. 
+
+
+## Standard Errors for Linear Regression
+
+```{r se-linear-model}
+# bootstrap SE
+boot_data_linear %>% 
+  summarize(sd(SmokeAge)) 
+
+# fit the model for classical/theoretical SE
+mod_lm <- 
+  adult_linear %>%   
+  with(lm(AgeFirstMarij ~ SmokeAge + Education)) 
+
+# classical/theoretical SE
+tidy(mod_lm)
+```
+
+> The classical/theoretical SE for the slope of age of smoking cigarettes is 0.024 years old. And the bootstrap SE is 0.27, which is close to the classical/theoretical SE. The standard error of the bootstrap estimates is our best guess at the variability of the smoking age slope estimates across different random samples. These two approaches show us estimates that are roughly the same magnitude, but not exactly the same. But if our sample size had been larger, or even from the whole population, these standard errors would be more similar. 
+
+> The standard error communicates the accuracy of the mean estimates for smoke age from our NHANES population is likely to be compared to the true population mean. For smoke age, the standard error is 0.02 years old. Taking into account that the unit is years old, 0.02 years old difference is a small amount of time, which is only roughly 9 days difference. Such a small standard error tells us that the mean estimates of smoking age is accurate enough, and we would probability see similar standard errors of smoking age in the whole population. As the smoke age mean estimates is normally distributed, we can also take look at how far 2 standard errors could be away from the mean estimates in the smoke age by having mean estimates add or minus 2 standraed error. We see that the mean estimates of smoke age is still above 0 and, possibily suggests that there is a relationship between the age of starting smoking ciagrettes and marijuana. However, more analysis on the confidence interval, p-values are needed later to evulate the model. 
+
+
+## Confidence Intervals for Linear Regression
+
+Edit the code below to create a 95% confidence interval for a slope coefficient of interest from your multiple linear regression model above using ***both*** methods: bootstrap percentile confidence interval and the classical/theoretical confidence interval from the model output. Interpret one of the intervals. In your interpretation, note if slope = 0 is in your interval of plausible values.
+
+```{r CI-linear-model}
+# bootstrap percentile CI
+boot_data_linear %>% 
+  summarize(lb = quantile(SmokeAge, 0.025), ub = quantile(SmokeAge, 0.975))
+
+# classical/theoretical CI
+confint(mod_lm)
+```
+
+> We are 95% confident saying that the confidence interval is from 0.03 to 0.12. For people who are 18- 30 years old, the interval provides plausible values for the true average age difference of starting smoking marijuana with one year difference in the age of smoking cigarettes, taking into account their educational levels are the same. Because of our interval construction process: we expect that in 95% of all possible samples, the constructed confidence intervals will contain the true average of smoke age within 0.03 to 0.12 years old difference.
+
+> For my sample, the slope = 0 is not in my interval of plausible values. Since this interval provides plausible values for the true slope, I have evidence suggesting that there is a true relationship between being regularly smoking marijuana now and starting age of smoking marijuana. And because the slope of 0 is not included in my confidence interval, I can rule out the null hypothesis and accept the alternative hypothesis. That being said, we are 95% confident that the confidence interval for the true average age difference of starting smoking marijuana with one year difference in the age of smoking cigarette is bwterrn 0.03 to 0.12, taking into account their educational levels are the same. Finally, it is also important to notice as the confidence intervals are in a range of small age differences, even if there is relationship between age starting smoking marijuana and smoking cigarettes, the correlation could be tiny.
+
+
+## Confidence Intervals for Logistic Regression
+
+```{r CI-logistic-model, message=FALSE}
+# set to be the same each time
+set.seed(1)
+
+# filters for logistical model
+adult_logistic <- NHANES %>% 
+  filter(Age >= 18) %>%
+  filter(!is.na(RegularMarij)) %>%
+  filter(!is.na(AgeFirstMarij)) %>%
+  filter(!is.na(Education)) %>%
+  mutate(AgeFirstMarijAdult = AgeFirstMarij >= 18) 
+
+# 500 bootstrap samples
+boot_data_logistic <- mosaic::do(500)*(
+  adult_logistic %>% 
+  sample_frac(replace = TRUE) %>%    # re-sample from your sample
+  with(glm(AgeFirstMarijAdult ~ RegularMarij + Education, family = binomial))   
+)
+
+# visualize the bootstrap sampling distribution for one slope coefficient of interest
+boot_data_logistic %>%
+  mutate(oddsratio = exp(RegularMarijYes)) %>%
+  ggplot(aes(x = oddsratio)) +
+  geom_histogram() + 
+  labs(x = 'Bootstrap Estimated Odds Ratios') +
+  labs(title = "Bootstrap Sampling Distribution for Regular Marijuana Smoking Slope") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(family = "Times New Roman", face = "bold", size = 10))
+
+# bootstrap percentile CI
+boot_data_logistic %>% 
+  mutate(oddsratio = exp(RegularMarijYes)) %>%
+  summarize(lb = quantile(oddsratio, 0.025), ub = quantile(oddsratio, 0.975))
+```
+
+> We are 95% confident saying that the confidence interval is from 0.24 to 0.34 For people who are 18 - 30 years old. The interval provides plausible values for the true odds ratio of starting to smoke marijuana first time as adults who are regular smokers now compare to who are not regular smokers now, taking into account their educational levels are the same. Because of our interval construction process: we expect that in 95% of all possible samples, the constructed confidence intervals will contain the true odds ratio would between 0.24 and 0.34.
+
+> For my sample, odds ratio of "1" is not in my interval of plausible values. Since this interval provides plausible values for the true slope, I have evidence suggesting that there is a true relationship between being regularly smoking marijuana now and starting age of smoking marijuana. And because the odds ratio "1" is not included in my confidence interval, I can rule out the null hypothesis and accept the alternative hypothesis. That being said, we are 95% confident that the odds ratio of starting to smoke marijuana first time as adults are between 0.23 and 0.33 for those who are regular smokers now compare to who are not regular smokers. It is also important to notice as the confidence interval (0.24, 0.33) means around 3-4 months differences in starting age of smoking marijuana, which is quite an important predictor in my model. 
